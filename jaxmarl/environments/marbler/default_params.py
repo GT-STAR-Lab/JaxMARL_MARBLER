@@ -10,3 +10,4 @@ DT = 0.1
 
 # Colors
 AGENT_COLOR = (115, 243, 115)
+LANDMARK_COLOR = (64, 64, 64)

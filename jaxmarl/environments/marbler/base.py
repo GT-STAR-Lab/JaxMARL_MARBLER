@@ -20,26 +20,30 @@ class State:
     c: chex.Array  # communication state [num_agents, [dim_c]]
     done: chex.Array  # bool [num_agents, ]
     step: int  # current step
-    goal: int = None 
 
 class BaseRobotarium(MultiAgentEnv):
     def __init__(
             self,
             num_agents,
+            max_steps,
             agents = None,
             action_type = DISCRETE_ACT,
             observation_spaces = None,
             dt=DT, #In a discrete action space, dt should be at least #TODO: give recommended minimum
-            goal_displacement = None,
-            max_steps=100,
+            step_dist = None,
             color=None,
             dim_c=0,
+            num_landmarks=0,
+            landmarks=None,
+            landmark_rad=None,
             **kwargs
     ):
         assert(
             len(num_agents) > 0 and len(num_agents) <= 20
         ), f"Robotarium can only support up to 20 robots"
         self.num_agents = num_agents
+        self.num_landmarks=num_landmarks
+        self.num_entities = num_agents+num_landmarks
 
         if agents is None:
             self.agents = [f'agent_{i}' for i in range(num_agents)]
@@ -50,6 +54,24 @@ class BaseRobotarium(MultiAgentEnv):
             self.agents = agents
 
         self.a_to_i = {a: i for i, a in enumerate(self.agents)}
+        
+        if landmarks is None:
+            self.landmarks = [f"landmark {i}" for i in range(num_landmarks)]
+        else:
+            assert (
+                len(landmarks) == num_landmarks
+            ), f"Number of landmarks {len(landmarks)} does not match number of landmarks {num_landmarks}"
+            self.landmarks = landmarks
+        self.l_to_i = {l: i + self.num_agents for i, l in enumerate(self.landmarks)}
+        
+        if landmark_rad is None:
+            self.landmark_rad = jnp.full((self.num_landmarks), 0.2)
+        else:
+            assert(
+                len(landmark_rad) == self.num_landmarks
+            ), f"Rad array length {len(landmark_rad)} does not match number of landmarks {self.num_landmarks}"
+            self.landmark_rad = landmark_rad
+        
         #TODO: self.classes
 
         #MARBLER supports discrete actions and continuous actions
@@ -71,21 +93,29 @@ class BaseRobotarium(MultiAgentEnv):
         self.color = (
             color
             if color is not None
-            else [AGENT_COLOR] * num_agents
+            else [AGENT_COLOR] * num_agents + [LANDMARK_COLOR] * num_landmarks
         )
         
+        '''
+        NOTE: in MARBLER's original implimentation, only agents in Material Transport actually communicated.
+            In all other environments, their observations were concatenated. However, now that training is so
+            much faster, I'm redoing this so all scenarios communicate the same way that MPE communicates.
+            This means that the training curves in this implimentation are different than in the original MARBLER
+            Another alternative would be for agents to communicate through GNNs like in 
+            "Generalization of Heterogeneous Multi-Robot Policies via Awareness and Communication of Capabilities"
+        '''
         self.dim_c = dim_c  # communication channel dimensionality
 
         # Environment parameters
         self.max_steps = max_steps
         self.dt = dt
-        self.substeps = substeps
-        if goal_displacement:
+
+        if step_dist:
             assert(
-                len(goal_displacement) == num_agents
-            ), f"Goal displacement array length {len(goal_displacement)} does not match number of agents"
+                len(step_dist) == num_agents
+            ), f"Goal displacement array length {len(step_dist)} does not match number of agents"
         else:
-            goal_displacement = [jnp.full((self.num_agents), 0.2)] #TODO: find a good number for this
+            step_dist = [jnp.full((self.num_agents), 0.2)] #TODO: find a good number for this
 
         self.rad = jnp.concatenate(
             [jnp.full((self.num_agents), 0.12)]
@@ -140,7 +170,7 @@ class BaseRobotarium(MultiAgentEnv):
             step=state.step + 1,
         )
 
-        reward = self.rewards(state)
+        reward = self.get_rewards(state)
         obs = self.get_obs(obs)
         info = {}
 
@@ -176,7 +206,7 @@ class BaseRobotarium(MultiAgentEnv):
             angular_velocity = 0
         else:
             #Gets and bounds linear velocity
-            linear_velocity = self.goal_displacement / self.dt
+            linear_velocity = self.step_dist / self.dt
             if abs(linear_velocity) > self.max_vel:
                 linear_velocity = self.max_vel * int(copysign(1,linear_velocity))
             
@@ -215,14 +245,14 @@ class BaseRobotarium(MultiAgentEnv):
 
     @partial(jax.jit, static_argnums=[0])
     def reset(self, key: chex.PRNGKey) -> Tuple[chex.Array, State]:
-        #Initialize agent positions, Environment specific
+        #Initialize agent positions, scenario specific
         raise NotImplementedError
     
-    def obs(self, state):
+    def get_obs(self, state):
         #Scenario specific
         raise NotImplementedError
 
-    def rewards(self, state):
+    def get_rewards(self, state):
         #Scenario specific
         raise NotImplementedError
     
@@ -230,13 +260,33 @@ class BaseRobotarium(MultiAgentEnv):
         #Scenario specific
         raise NotImplementedError
 
+    #Utilites (TODO: CBFs method(s) here)
+
     def is_collision(self, a: int, b: int, state: State):
         #check if two agents are colliding
-        delta_pos = state.p_pose(a) - state.p_pos(b)
+        #TODO: collision offsets?
+        delta_pos = state.p_pose(a)[:2] - state.p_pos(b)[:2]
         dist = jnp.sqrt(jnp.sum(jnp.square(delta_pos)))
-        return (dist < .24) & (a != b) #Agents in the robotarium have a 12cm radius
+        return (dist < .135) & (a != b) #same collision diameter as is used in Robotarium
 
+    def out_of_bounds(self, a: int, state: State):
+        #Checks if an agent is out of bounds
+        return abs(state.p_pose(a)[0]) > -1.5 or abs(state.p_pos[1]) > 1
+    
+    def get_initial_states(self, spacing: float, key: chex.PRNGKey, width=2.9, height=1.8, N = None):
+        """
+        Generates random initial conditions in an area of the specified width and height
+            for each agent at the specified distance
+        """
+        if N is None:
+            N = self.num_agents
+        
+        x_range = int(jax.floor(width/spacing))
+        y_range = int(jax.floor(height/spacing))
 
-    def out_of_bounds(self):
-        #TODO: find if agent is out of bounds
-        pass
+        choices = jax.random.choice(key, x_range*y_range, shape=(N,), replace=False)+1
+        x,y = jnp.divmod(choices, y_range)
+
+        start_locations = jnp.column_stack((x*spacing - width/2, y*spacing - height/2))
+        return start_locations
+
