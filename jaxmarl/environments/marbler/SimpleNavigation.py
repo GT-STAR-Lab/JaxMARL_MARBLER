@@ -24,7 +24,7 @@ class SimpleNaviation(BaseRobotarium):
         agents = ["agent_{}".format(i) for i in range(num_agents)]
         step_dists = [jnp.full((num_agents), step_dist)] #Homogeneous agents in simple navigation
 
-        observation_spaces = {i: Box() for i in agents}
+        observation_spaces = {i: Box(-1.5,1.5, (5,)) for i in agents}
 
         super.init(
             num_agents=num_agents,
@@ -50,6 +50,8 @@ class SimpleNaviation(BaseRobotarium):
             done=jnp.full((self.num_agents), False),
             step=0,
         )
+
+        return self.get_obs(state), state
 
     @partial(jax.jit, static_argnums=[0])
     def get_obs(self, state: State) -> Dict[str, chex.Array]:
@@ -77,6 +79,6 @@ class SimpleNaviation(BaseRobotarium):
         r = _reward(self.agent_range, state)
         return {agent: r[i] for i, agent in enumerate(self.agents)}
 
-
-
+    def get_info(self, state):
+        return {}
     

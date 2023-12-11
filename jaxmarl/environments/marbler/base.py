@@ -172,7 +172,7 @@ class BaseRobotarium(MultiAgentEnv):
 
         reward = self.get_rewards(state)
         obs = self.get_obs(obs)
-        info = {}
+        info = self.get_info(state)
 
         return obs, state, reward, dones, info
 
