@@ -85,6 +85,7 @@ pip install jaxmarl
 2. The requirements for IPPO & MAPPO can be installed with:
     ``` 
     pip install -e .
+    export PYTHONPATH=./JaxMARL:$PYTHONPATH
     ```
 3. If you would also like to run the Q-learning algorithms, Python 3.9 is required along with additional dependencies:
     ``` 
@@ -109,7 +110,7 @@ import jax
 from jaxmarl import make
 
 key = jax.random.PRNGKey(0)
-key, key_reset, key_act, key_step = jax.random.split(rng, 4)
+key, key_reset, key_act, key_step = jax.random.split(key, 4)
 
 # Initialise environment.
 env = make('MPE_simple_world_comm_v3')
@@ -125,6 +126,16 @@ actions = {agent: env.action_space(agent).sample(key_act[i]) for i, agent in enu
 obs, state, reward, done, infos = env.step(key_step, state, actions)
 ```
 
+### Dockerfile 🐋
+To help get experiments up and running we include a [Dockerfile](https://github.com/FLAIROx/JaxMARL/blob/main/Dockerfile) and its corresponding [Makefile](https://github.com/FLAIROx/JaxMARL/blob/main/Makefile). With Docker and the [Nvidia Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/index.html) installed, the container can be built with:
+```
+make build
+```
+The built container can then be run:
+```
+make run
+```
+
 ## Contributing 🔨
 Please contribute! Please take a look at our [contributing guide](https://github.com/FLAIROx/JaxMARL/blob/main/CONTRIBUTING.md) for how to add an environment/algorithm or submit a bug report. Our roadmap also lives there.
 
@@ -134,7 +145,7 @@ If you use JaxMARL in your work, please cite us as follows:
 ```
 @article{flair2023jaxmarl,
       title={JaxMARL: Multi-Agent RL Environments in JAX},
-      author={Alexander Rutherford and Benjamin Ellis and Matteo Gallici and Jonathan Cook and Andrei Lupu and Gardar Ingvarsson and Timon Willi and Akbir Khan and Christian Schroeder de Witt and Alexandra Souly and Saptarashmi Bandyopadhyay and Mikayel Samvelyan and Minqi Jiang and Robert Tjarko Lange and Shimon Whiteson and Bruno Lacerda and Nick Hawes and Tim Rocktaschel and Chris Lu and Jakob Nicolaus Foerster}
+      author={Alexander Rutherford and Benjamin Ellis and Matteo Gallici and Jonathan Cook and Andrei Lupu and Gardar Ingvarsson and Timon Willi and Akbir Khan and Christian Schroeder de Witt and Alexandra Souly and Saptarashmi Bandyopadhyay and Mikayel Samvelyan and Minqi Jiang and Robert Tjarko Lange and Shimon Whiteson and Bruno Lacerda and Nick Hawes and Tim Rocktaschel and Chris Lu and Jakob Nicolaus Foerster},
       journal={arXiv preprint arXiv:2311.10090},
       year={2023}
     }
